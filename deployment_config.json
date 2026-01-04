@@ -1,0 +1,21 @@
+{
+    "model_path": "dfu_risk_model.keras",
+    "image_size": [
+        224,
+        224
+    ],
+    "risk_thresholds": {
+        "low": 0.3,
+        "moderate": 0.6
+    },
+    "last_conv_layer": "conv5_block16_2_conv",
+    "model_info": {
+        "architecture": "DenseNet121",
+        "task": "DFU Risk Classification",
+        "output": [
+            "Low Risk",
+            "Moderate Risk",
+            "High Risk"
+        ]
+    }
+}
