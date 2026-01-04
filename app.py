@@ -31,7 +31,8 @@ def load_model_and_config():
 model, config = load_model_and_config()
 
 IMG_SIZE = tuple(config["image_size"])
-LAST_CONV_LAYER = config["last_conv_layer"]
+LAST_CONV_LAYER = "conv5_block16_concat"
+
 
 # ---------------- RISK MAPPING ----------------
 def prob_to_risk(prob):
