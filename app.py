@@ -45,23 +45,31 @@ def prob_to_risk(prob):
 
 # ---------------- GRAD-CAM ----------------
 def make_gradcam_heatmap(img_array, model):
+    # Get DenseNet backbone
+    backbone = model.get_layer("densenet121")
+
     grad_model = tf.keras.models.Model(
-        model.inputs,
-        [model.get_layer(LAST_CONV_LAYER).output, model.output]
+        inputs=model.inputs,
+        outputs=[
+            backbone.get_layer("conv5_block16_concat").output,
+            model.output
+        ]
     )
 
     with tf.GradientTape() as tape:
-        conv_out, preds = grad_model(img_array)
-        loss = preds[:, 0]
+        conv_outputs, predictions = grad_model(img_array)
+        loss = predictions[:, 0]
 
-    grads = tape.gradient(loss, conv_out)
+    grads = tape.gradient(loss, conv_outputs)
+
     pooled_grads = tf.reduce_mean(grads, axis=(0, 1, 2))
+    conv_outputs = conv_outputs[0]
 
-    heatmap = tf.reduce_sum(conv_out[0] * pooled_grads, axis=-1)
-    heatmap = tf.maximum(heatmap, 0)
-    heatmap /= tf.reduce_max(heatmap) + 1e-8
+    heatmap = tf.reduce_sum(conv_outputs * pooled_grads, axis=-1)
+    heatmap = tf.maximum(heatmap, 0) / (tf.reduce_max(heatmap) + 1e-8)
 
     return heatmap.numpy()
+
 
 def overlay_gradcam(img, heatmap, alpha=0.4):
     heatmap = cv2.resize(heatmap, (img.shape[1], img.shape[0]))
