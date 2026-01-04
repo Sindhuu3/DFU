@@ -31,7 +31,7 @@ def load_model_and_config():
 model, config = load_model_and_config()
 
 IMG_SIZE = tuple(config["image_size"])
-LAST_CONV_LAYER = "conv5_block16_concat"
+# LAST_CONV_LAYER = "conv5_block16_concat"
 
 
 # ---------------- RISK MAPPING ----------------
@@ -45,30 +45,43 @@ def prob_to_risk(prob):
 
 # ---------------- GRAD-CAM ----------------
 def make_gradcam_heatmap(img_array, model):
-    # Get DenseNet backbone
-    backbone = model.get_layer("densenet121")
+    """
+    Fully safe Grad-CAM for DenseNet121 in a wrapped model
+    """
 
+    # 1. Find the last convolution layer by name (global search)
+    last_conv_layer = None
+    for layer in model.layers:
+        if "conv5_block16_concat" in layer.name:
+            last_conv_layer = layer
+            break
+
+    if last_conv_layer is None:
+        raise ValueError("Last convolution layer not found")
+
+    # 2. Build a model that maps input → (conv_output, prediction)
     grad_model = tf.keras.models.Model(
-        inputs=model.inputs,
-        outputs=[
-            backbone.get_layer("conv5_block16_concat").output,
-            model.output
-        ]
+        inputs=model.input,
+        outputs=[last_conv_layer.output, model.output]
     )
 
+    # 3. Forward + backward pass
     with tf.GradientTape() as tape:
         conv_outputs, predictions = grad_model(img_array)
         loss = predictions[:, 0]
 
     grads = tape.gradient(loss, conv_outputs)
 
+    # 4. Compute Grad-CAM
     pooled_grads = tf.reduce_mean(grads, axis=(0, 1, 2))
     conv_outputs = conv_outputs[0]
 
     heatmap = tf.reduce_sum(conv_outputs * pooled_grads, axis=-1)
-    heatmap = tf.maximum(heatmap, 0) / (tf.reduce_max(heatmap) + 1e-8)
+    heatmap = tf.maximum(heatmap, 0)
+    heatmap /= tf.reduce_max(heatmap) + 1e-8
 
     return heatmap.numpy()
+
 
 
 def overlay_gradcam(img, heatmap, alpha=0.4):
