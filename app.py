@@ -29,10 +29,7 @@ def load_model_and_config():
     return model, config
 
 model, config = load_model_and_config()
-
 IMG_SIZE = tuple(config["image_size"])
-# LAST_CONV_LAYER = "conv5_block16_concat"
-
 
 # ---------------- RISK MAPPING ----------------
 def prob_to_risk(prob):
@@ -43,46 +40,51 @@ def prob_to_risk(prob):
     else:
         return "High Risk"
 
-# ---------------- GRAD-CAM ----------------
+# ---------------- GRAD-CAM (SAFE, MODEL-AGNOSTIC) ----------------
 def make_gradcam_heatmap(img_array, model):
     """
-    Fully safe Grad-CAM for DenseNet121 in a wrapped model
+    Robust Grad-CAM implementation.
+    Automatically finds the last Conv2D layer.
     """
 
-    # 1. Find the last convolution layer by name (global search)
+    # 1. Find last Conv2D layer
     last_conv_layer = None
-    for layer in model.layers:
-        if "conv5_block16_concat" in layer.name:
+    for layer in reversed(model.layers):
+        if isinstance(layer, tf.keras.layers.Conv2D):
             last_conv_layer = layer
             break
 
     if last_conv_layer is None:
-        raise ValueError("Last convolution layer not found")
+        raise ValueError("No Conv2D layer found in the model.")
 
-    # 2. Build a model that maps input → (conv_output, prediction)
+    # 2. Build Grad-CAM model
     grad_model = tf.keras.models.Model(
         inputs=model.input,
         outputs=[last_conv_layer.output, model.output]
     )
 
-    # 3. Forward + backward pass
+    # 3. Forward & backward pass
     with tf.GradientTape() as tape:
         conv_outputs, predictions = grad_model(img_array)
         loss = predictions[:, 0]
 
     grads = tape.gradient(loss, conv_outputs)
 
-    # 4. Compute Grad-CAM
+    # 4. Compute weights
     pooled_grads = tf.reduce_mean(grads, axis=(0, 1, 2))
     conv_outputs = conv_outputs[0]
 
+    # 5. Generate heatmap
     heatmap = tf.reduce_sum(conv_outputs * pooled_grads, axis=-1)
     heatmap = tf.maximum(heatmap, 0)
-    heatmap /= tf.reduce_max(heatmap) + 1e-8
 
+    # Normalize safely
+    max_val = tf.reduce_max(heatmap)
+    if max_val == 0:
+        return np.zeros(heatmap.shape)
+
+    heatmap /= max_val
     return heatmap.numpy()
-
-
 
 def overlay_gradcam(img, heatmap, alpha=0.4):
     heatmap = cv2.resize(heatmap, (img.shape[1], img.shape[0]))
@@ -107,7 +109,7 @@ if uploaded_file:
         with st.spinner("Analyzing image..."):
             # Preprocess
             img_resized = cv2.resize(img_np, IMG_SIZE)
-            img_norm = img_resized / 255.0
+            img_norm = img_resized.astype(np.float32) / 255.0
             img_batch = np.expand_dims(img_norm, axis=0)
 
             # Prediction
@@ -115,9 +117,13 @@ if uploaded_file:
             risk = prob_to_risk(prob)
             confidence = abs(prob - 0.5) * 200
 
-            # Grad-CAM
-            heatmap = make_gradcam_heatmap(img_batch, model)
-            gradcam_img = overlay_gradcam(img_resized, heatmap)
+            # Grad-CAM (safe)
+            try:
+                heatmap = make_gradcam_heatmap(img_batch, model)
+                gradcam_img = overlay_gradcam(img_resized, heatmap)
+            except Exception as e:
+                gradcam_img = img_resized
+                st.warning("Grad-CAM could not be generated for this image.")
 
         # ---------------- RESULTS ----------------
         st.subheader("📊 Risk Assessment Result")
