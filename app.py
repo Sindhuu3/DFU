@@ -131,7 +131,7 @@ if uploaded_file:
         col1, col2, col3 = st.columns(3)
         col1.metric("Risk Type", risk)
         col2.metric("Risk Score", f"{prob:.3f}")
-        col3.metric("Confidence", f"{confidence:.1f}%")
+        # col3.metric("Confidence", f"{confidence:.1f}%")
 
         st.subheader("🧠 Model Explanation (Grad-CAM)")
         st.image(gradcam_img, caption="Highlighted regions influencing prediction")
